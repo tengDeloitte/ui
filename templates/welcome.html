@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CDERGPT</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 0;
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+        }
+        p {
+            color: #666;
+        }
+        button {
+            background-color: #007bff;
+            color: #fff;
+            font-size: 16px;
+            padding: 10px 20px;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .service-block {
+            margin-bottom: 35px;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+    <script>
+        let previousStatus = {};
+        let isInitialLoad = true;
+
+        function monitorService(ip, serviceName) {
+            fetch(`http://${ip}:7860`)
+                .then(response => {
+                    if (response.ok) {
+                        const startingText = document.getElementById(`starting-${serviceName}`);
+                        startingText.textContent = 'CDERGPT ready';
+                        startingText.classList.remove('hidden');
+                        const goButton = document.getElementById(`go-button-${serviceName}`);
+                        goButton.classList.remove('hidden');
+                        goButton.onclick = () => window.open(`http://${ip}:7860`, '_blank');
+                    } else {
+                        throw new Error('Service not ready');
+                    }
+                })
+                .catch(error => {
+                    console.log('Service not ready yet, will try again...', error);
+                });
+        }
+
+        function updateServiceBlock(service, statusHTML) {
+            const serviceBlock = document.getElementById(`service-block-${service.service}`);
+            if (!serviceBlock) {
+                // 如果服务块不存在，则创建新的
+                const newServiceBlock = document.createElement('div');
+                newServiceBlock.id = `service-block-${service.service}`;
+                newServiceBlock.className = "service-block";
+                newServiceBlock.innerHTML = statusHTML;
+                document.getElementById('status').appendChild(newServiceBlock);
+            } else {
+                // 如果服务块已存在，仅更新内容
+                serviceBlock.innerHTML = statusHTML;
+            }
+        }
+
+        function updateStatus() {
+            fetch('/get_status')
+                .then(response => response.json())
+                .then(data => {
+                    if (isInitialLoad) {
+                        document.getElementById('status').textContent = ''; // 清除初始的 Loading... 文本
+                        isInitialLoad = false;
+                    }
+                    data.forEach(service => {
+                        let statusHTML = `Service: ${service.service} - Status: `;
+                        if (Array.isArray(service.status) && service.status.length > 0) {
+                            // 有任务运行的情况
+                            const task = service.status[0];
+                            statusHTML += `${task.lastStatus} - IpAddress: ${task.ipAddress}`;
+                            statusHTML += ` <button onclick="stopService('${service.service}')">Stop</button>`;
+                            statusHTML += ` <span id="starting-${service.service}">Starting CDERGPT...</span>`;
+                            statusHTML += ` <button id="go-button-${service.service}" class="hidden">Go</button>`;
+
+                            monitorService(task.ipAddress, service.service);
+                        } else {
+                            // 没有任务运行的情况
+                            statusHTML += `${service.status}`;
+                            if (service.status === 'No CDERGPT running') {
+                                statusHTML += ` <button onclick="startService('${service.service}')">Start</button>`;
+                            }
+                        }
+
+                        // 检查状态是否有变化
+                        if (!previousStatus[service.service] || previousStatus[service.service] !== statusHTML) {
+                            updateServiceBlock(service, statusHTML);
+                            previousStatus[service.service] = statusHTML;
+                        }
+                    });
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function startService(serviceName) {
+            console.log('Starting service:', serviceName);
+            fetch(`/start_service/${serviceName}`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    console.log(data.message);
+                    if (data.ipAddress) {
+                        document.getElementById(`starting-${serviceName}`).textContent = 'Starting CDERGPT...';
+                        monitorService(data.ipAddress, serviceName);
+                    }
+                    updateStatus();
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function stopService(serviceName) {
+            console.log('Stopping service:', serviceName);
+            fetch(`/stop_service/${serviceName}`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    console.log(data.message);
+                    updateStatus();
+                })
+                .catch(error => console.error('Error:', error));
+        }
+        setInterval(updateStatus, 1000);
+    </script>
+</head>
+<body>
+<h1>Welcome to CDERGPT</h1>
+<p>The CDERGPT will be loaded and invoked. Please be patient as it may take 2 to 3 minutes to boot and start the GPU-Inference Server</p>
+<div id="status">Loading...</div>
+</body>
+</html>
